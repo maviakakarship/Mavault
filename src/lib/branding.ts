@@ -1,10 +1,12 @@
+import { CustomBrand } from '../types';
+
 /**
  * Mavault Branding Engine
  * Heuristically derives icons and brand colors from domains.
  */
 
 // 1. High Priority Platforms (Always win if mentioned)
-const PLATFORM_MAP: Record<string, string> = {
+export const PLATFORM_MAP: Record<string, string> = {
   'github': 'github.com',
   'replit': 'replit.com',
   'instagram': 'instagram.com',
@@ -20,14 +22,20 @@ const PLATFORM_MAP: Record<string, string> = {
   'microsoft': 'microsoft.com',
   'outlook': 'microsoft.com',
   'icloud': 'apple.com',
-  'wordpress': 'wordpress.com'
+  'wordpress': 'wordpress.com',
+  'amazon': 'amazon.com',
+  'reddit': 'reddit.com',
+  'netflix': 'netflix.com',
+  'spotify': 'spotify.com',
+  'youtube': 'youtube.com',
+  'discord': 'discord.com',
+  'slack': 'slack.com'
 };
 
 // 2. Organization & Service Mappings
-const SERVICE_MAP: Record<string, string> = {
-  // Education & Gov (Added www. for better icon reliability)
+export const SERVICE_MAP: Record<string, string> = {
+  // Education & Gov
   'plymouth': 'www.plymouth.ac.uk',
-  'capitol': 'www.plymouth.ac.uk',
   'lancaster': 'www.lancaster.ac.uk',
   'bailrigg': 'www.lancaster.ac.uk',
   'student finance': 'www.gov.uk',
@@ -39,63 +47,97 @@ const SERVICE_MAP: Record<string, string> = {
   'payoneer': 'www.payoneer.com',
   'stripe': 'www.stripe.com',
   'paypal': 'www.paypal.com',
+  'wise': 'wise.com',
+  'revolut': 'revolut.com',
+  'monzo': 'monzo.com',
+  'coinbase': 'coinbase.com',
+  'binance': 'binance.com',
   'interactive brokers': 'www.interactivebrokers.com',
   'upwork': 'www.upwork.com',
   'ein presswire': 'www.einpresswire.com',
   'bonline': 'www.bonline.com',
   'tesco': 'www.tesco.com',
-  '1688': 'www.alibaba.com', // 1688 mapping to Alibaba
+  '1688': 'www.alibaba.com',
   'alibaba': 'www.alibaba.com',
+  'shopify': 'shopify.com',
+  'ebay': 'ebay.com',
+  'etsy': 'etsy.com',
   
   // Tech & Infrastructure
   'aws': 'aws.amazon.com',
+  'azure': 'azure.microsoft.com',
+  'cloudflare': 'cloudflare.com',
   'supabase': 'supabase.com',
   'clerk': 'clerk.com',
   'emailjs': 'emailjs.com',
   'cursor': 'cursor.com',
   'vercel': 'vercel.com',
+  'netlify': 'netlify.com',
   'digitalocean': 'digitalocean.com',
   'heroku': 'heroku.com',
   'openai': 'openai.com',
   'chatgpt': 'openai.com',
   'claude': 'anthropic.com',
+  'perplexity': 'perplexity.ai',
   'godaddy': 'www.godaddy.com',
   'bluehost': 'www.bluehost.com',
-  'qt': 'www.qt.io',
-  'anki': 'ankiweb.net',
-  
-  // CMS & Tools
-  'webtoffee': 'wordpress.com', // Map to WordPress as requested
-  'wbtofee': 'wordpress.com',
-  'interview amigo': 'interviewamigo.com',
-  'wpmudev': 'wordpress.com',
-  'elementor': 'elementor.com',
-  'flutterflow': 'flutterflow.io',
-  'woocommerce': 'woocommerce.com',
-  'iubenda': 'iubenda.com',
-  'certum': 'www.certum.pl',
+  'mongodb': 'mongodb.com',
+  'planetscale': 'planetscale.com',
+  'railway': 'railway.app',
   
   // Social & Entertainment
   'tiktok': 'www.tiktok.com',
   'snapchat': 'www.snapchat.com',
   'pinterest': 'www.pinterest.com',
-  'youtube': 'www.youtube.com',
-  'netflix': 'www.netflix.com',
-  'spotify': 'www.spotify.com',
-  'discord': 'www.discord.com',
   'twitch': 'www.twitch.tv',
   'steam': 'steampowered.com',
   'epic games': 'epicgames.com',
-  'ea': 'www.ea.com',
   'roblox': 'www.roblox.com',
+  'whatsapp': 'whatsapp.com',
+  'telegram': 'telegram.org',
+  'signal': 'signal.org',
+  'zoom': 'zoom.us',
+  'disney+': 'disneyplus.com',
+  'hulu': 'hulu.com',
+  'hbo': 'max.com',
+  'peacock': 'peacocktv.com',
   
-  // Health & Travel
-  'puregym': 'www.puregym.com',
-  'the gym group': 'www.thegymgroup.com',
-  'trainline': 'www.thetrainline.com',
-  'surfshark': 'www.surfshark.com',
-  'lta tennis': 'www.lta.org.uk'
+  // Productivity
+  'notion': 'notion.so',
+  'trello': 'trello.com',
+  'asana': 'asana.com',
+  'monday': 'monday.com',
+  'clickup': 'clickup.com',
+  'linear': 'linear.app',
+  'jira': 'atlassian.com',
+  'figma': 'figma.com',
+  'canva': 'canva.com',
+  'miro': 'miro.com',
+  'adobe': 'adobe.com'
 };
+
+export const POPULAR_BRANDS = [
+  ...Object.entries(PLATFORM_MAP).map(([name, domain]) => ({ name: name.charAt(0).toUpperCase() + name.slice(1), domain })),
+  ...Object.entries(SERVICE_MAP).map(([name, domain]) => ({ name: name.charAt(0).toUpperCase() + name.slice(1), domain }))
+].reduce((acc, current) => {
+  const x = acc.find(item => item.domain === current.domain);
+  if (!x) return acc.concat([current]);
+  else return acc;
+}, [] as { name: string, domain: string }[]).sort((a, b) => a.name.localeCompare(b.name));
+
+export function getHeuristicBrand(name: string, domain: string | undefined): { name: string, domain: string } | null {
+  const cleanName = name.toLowerCase();
+  
+  for (const [key, dom] of Object.entries(PLATFORM_MAP)) {
+    if (cleanName.includes(key)) return { name: key.charAt(0).toUpperCase() + key.slice(1), domain: dom };
+  }
+
+  for (const [key, dom] of Object.entries(SERVICE_MAP)) {
+    if (cleanName.includes(key) || (domain && domain.includes(dom))) return { name: key.charAt(0).toUpperCase() + key.slice(1), domain: dom };
+  }
+
+  return null;
+}
 
 const OAUTH_KEYWORDS = [
   '(google)', '(google login)', '(google oauth)', '(gmail)',
@@ -103,17 +145,18 @@ const OAUTH_KEYWORDS = [
   '(facebook)', '(fb)', '(github)', '(wordpress)'
 ];
 
-export function getDomain(url: string | undefined, name?: string): string | null {
-  // Normalize input
+export function getDomain(url: string | undefined, name?: string, customBrands?: CustomBrand[]): string | null {
   const cleanName = name ? name.toLowerCase().trim() : '';
   
-  // CRITICAL: If the NAME contains a high-priority platform (GitHub, Instagram), 
-  // it MUST win, even if there's a URL. This fixes "GitHub Plymouth".
+  if (customBrands) {
+    const custom = customBrands.find(b => cleanName.includes(b.name.toLowerCase()));
+    if (custom) return custom.domain;
+  }
+
   for (const [key, domain] of Object.entries(PLATFORM_MAP)) {
     if (cleanName.includes(key)) return domain;
   }
 
-  // 2. If no platform match in name, use the URL if it exists
   if (url && url.trim() !== '') {
     try {
       const domain = url.includes('://') ? new URL(url).hostname : url.split('/')[0];
@@ -125,19 +168,16 @@ export function getDomain(url: string | undefined, name?: string): string | null
 
   if (!cleanName) return null;
 
-  // 3. Clean OAuth noise
   let processedName = cleanName;
   for (const kw of OAUTH_KEYWORDS) {
     processedName = processedName.replace(kw, '').trim();
   }
 
-  // 4. Match against Organization & Service Map
   const sortedServiceKeys = Object.keys(SERVICE_MAP).sort((a, b) => b.length - a.length);
   for (const key of sortedServiceKeys) {
     if (processedName.includes(key)) return SERVICE_MAP[key];
   }
 
-  // 5. Domain-like strings fallback
   if (processedName.includes('.') && !processedName.includes(' ')) return processedName;
 
   return null;
@@ -146,6 +186,17 @@ export function getDomain(url: string | undefined, name?: string): string | null
 export function getIconUrl(domain: string | null): string | null {
   if (!domain) return null;
   return `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
+}
+
+export function getLetterAvatar(name: string, color: string): string {
+  const firstLetter = (name[0] || '?').toUpperCase();
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+      <rect width="100" height="100" fill="${color}" />
+      <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="Inter, sans-serif" font-weight="800" font-size="50" fill="rgba(255,255,255,0.9)">${firstLetter}</text>
+    </svg>
+  `;
+  return `data:image/svg+xml;base64,${btoa(svg)}`;
 }
 
 const BRAND_COLORS: Record<string, string> = {

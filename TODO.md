@@ -59,18 +59,18 @@ This document tracks the implementation of Mavault V1 features against the offic
 - [ ] **Security Time Machine:** Vertical "scrubbing" UI for password history with color-shifting Auras based on data age.
 - [ ] **Sensory Feedback (Sound & Haptics):** Subtle "glass clink" audio cues and native trackpad haptics for a physical hardware feel.
 
-### 3. Desktop Integration (Tauri Phase)
-- [x] **Tauri Setup:** Initialize Tauri in the project for native desktop capabilities
+### 3. Desktop Integration (Electron Phase)
+- [x] **Electron Setup:** Initialize Electron in the project for native desktop capabilities
 - [ ] **Native Build:** Verify builds for macOS and Windows
-- [ ] **File-system Storage:** Shift from `localStorage` to persistent `.sec` file storage in user documents
+- [x] **File-system Storage:** Shift from `localStorage` to persistent `.sec` file storage in user documents
 - [ ] **Automatic Backups:** Implement `.backup.timestamp.sec` creation before write operations
 
 ---
 
 ## 🔴 Remaining Tasks (Security Compliance)
-- [ ] **Screenshot Protection:** Block screen capture using native APIs (Tauri)
-- [ ] **Secure Memory Management:** Ensure secrets are scrubbed from memory after use (Native layer)
-- [ ] **System Sleep Lock:** Detect OS sleep/lock events to trigger vault lock
+- [x] **Screenshot Protection:** Block screen capture using native APIs (Electron)
+- [x] **Secure Memory Management:** Ensure secrets are scrubbed from memory after use (Native layer)
+- [x] **System Sleep Lock:** Detect OS sleep/lock events to trigger vault lock
 
 ---
 

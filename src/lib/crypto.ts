@@ -80,10 +80,12 @@ export async function encryptData(data: string, passphrase: string) {
 }
 
 export async function decryptData(base64Data: string, passphrase: string) {
+  console.log("DEBUG [crypto]: Starting decryption...");
   if (!passphrase) throw new Error('Passphrase is required for decryption');
   
   try {
     const combined = base64ToUint8Array(base64Data);
+    console.log("DEBUG [crypto]: Combined data length:", combined.length);
 
     if (combined.length < 28) {
         throw new Error('Invalid vault data: too short');
@@ -102,8 +104,11 @@ export async function decryptData(base64Data: string, passphrase: string) {
     );
 
     const dec = new TextDecoder();
-    return dec.decode(decrypted);
+    const result = dec.decode(decrypted);
+    console.log("DEBUG [crypto]: Decryption success. Result length:", result.length);
+    return result;
   } catch (e: any) {
+    console.error("DEBUG [crypto]: Decryption error:", e);
     if (e.name === 'OperationError') {
         throw new Error('Invalid passphrase');
     }

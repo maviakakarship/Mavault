@@ -1,20 +1,19 @@
-import React, { useState, useEffect } from 'react';
-import { Shield, Lock, Unlock, Key, FileLock2, Search, Plus, Trash2, Copy, ExternalLink, MoreVertical, Check, AlertCircle, RefreshCw, Settings2, Eye, EyeOff, Info, Edit2, Upload, X, ArrowLeftRight, Download, FileText, Folder, FolderOpen } from 'lucide-react';
-import { VaultEntry } from './types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Shield, Lock, Unlock, Key, FileLock2, Search, Plus, Trash2, Copy, ExternalLink, MoreVertical, Check, AlertCircle, RefreshCw, Settings2, Eye, EyeOff, Info, Edit2, Upload, X, ArrowLeftRight, Download, FileText, Folder, FolderOpen, ChevronDown } from 'lucide-react';
+import { VaultEntry, CustomBrand } from './types';
 import { encryptData, decryptData, generateRecoveryKey } from './lib/crypto';
 import { generatePassword, PasswordOptions } from './lib/password';
 import { parseSmartPlaintext, readFileAsText } from './lib/importer';
-import { getDomain, getIconUrl, getBrandColor } from './lib/branding';
+import { getDomain, getIconUrl, getBrandColor, getHeuristicBrand, POPULAR_BRANDS, getLetterAvatar } from './lib/branding';
 import './App.css';
-import { readTextFile, writeTextFile, exists, BaseDirectory } from '@tauri-apps/plugin-fs';
-import { appDataDir, join } from '@tauri-apps/api/path';
-import { invoke } from '@tauri-apps/api/core';
+
+// ... rest of imports and helpers
 
 const VAULT_STORAGE_KEY = 'mavault_data_v2';
 const NATIVE_FILE_NAME = 'mavault_core.sec';
 
-// Helper to determine if we are running in Tauri
-const isTauri = () => '__TAURI_INTERNALS__' in window;
+// Helper to determine if we are running in Electron
+const isElectron = () => navigator.userAgent.toLowerCase().indexOf(' electron/') > -1;
 
 // Helper to generate consistent, subtle pastel colors based on category name
 const getStringColor = (str: string) => {
@@ -37,6 +36,7 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState<'vault' | 'notes' | 'recovery' | 'security' | 'settings'>('vault');
   const [entries, setEntries] = useState<VaultEntry[]>([]);
+  const [customBrands, setCustomBrands] = useState<CustomBrand[]>([]);
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showGenerator, setShowGenerator] = useState(false);
@@ -181,16 +181,29 @@ export default function App() {
 
   const AUTO_LOCK_TIMEOUT = 5 * 60 * 1000;
 
+  const [customBrandInput, setCustomBrandInput] = useState({ name: '', domain: '' });
+
+  const lockVault = () => {
+    setIsLocked(true);
+    setPassphrase('');
+    setEntries([]);
+    setIsRecoveryMode(false);
+    showToast('Vault locked', 'error');
+  };
+
+  useEffect(() => {
+    if (isElectron()) {
+      (window as any).api.onLock(() => lockVault());
+    }
+  }, []);
+
   useEffect(() => {
     if (isLocked) return;
     let timer: NodeJS.Timeout;
     const resetTimer = () => {
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
-        setIsLocked(true);
-        setPassphrase('');
-        setEntries([]);
-        setIsRecoveryMode(false);
+        lockVault();
         showToast('Vault auto-locked due to inactivity', 'error');
       }, AUTO_LOCK_TIMEOUT);
     };
@@ -213,10 +226,63 @@ export default function App() {
     tagsString: '',
   });
 
+  const [entryIcon, setEntryIcon] = useState<string | undefined>(undefined);
+
+  const handleCustomIconUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    // Read file as data URL (Base64)
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        const base64 = event.target?.result as string;
+        setEntryIcon(base64);
+        showToast('Custom icon uploaded');
+    };
+    reader.readAsDataURL(file);
+    e.target.value = ''; // Reset
+  };
+
   const handleGenerate = () => {
     const pwd = generatePassword(genOptions);
     setNewEntry({ ...newEntry, password: pwd });
     setShowPassword(true);
+  };
+
+  const runAutoDetect = () => {
+    console.log("DEBUG: Auto-detect triggered for:", newEntry.website, newEntry.name);
+    if (!newEntry.website) return;
+    
+    // Heuristically derive domain
+    const domain = getDomain(newEntry.website, newEntry.name, customBrands);
+    console.log("Detected domain:", domain);
+
+    if (!domain) {
+      showToast('Could not automatically detect brand from this website', 'error');
+      return;
+    }
+    
+    // Heuristic Brand Lookup
+    const heuristic = getHeuristicBrand(newEntry.name || '', domain);
+    console.log("Heuristic brand found:", heuristic);
+
+    // Update state with detected info
+    setCustomBrandInput({ 
+        name: heuristic?.name || newEntry.name || 'Untitled', 
+        domain: heuristic?.domain || domain 
+    });
+    
+    // Suggest Tags
+    const detectedTags = [];
+    if (newEntry.website.includes('bank')) detectedTags.push('Finance');
+    if (newEntry.website.includes('work') || newEntry.name.toLowerCase().includes('work')) detectedTags.push('Work');
+    
+    setNewEntry(prev => ({
+      ...prev,
+      tagsString: [...(prev.tagsString ? prev.tagsString.split(', ') : []), ...detectedTags].join(', ')
+    }));
+    
+    showToast('Auto-detected brand and tags!');
   };
 
   useEffect(() => {
@@ -236,22 +302,7 @@ export default function App() {
     setIsLoading(true);
     setError(null);
     try {
-      let storedData = null;
-
-      if (isTauri()) {
-        try {
-          const filePath = await join(await appDataDir(), NATIVE_FILE_NAME);
-          if (await exists(filePath)) {
-            storedData = await readTextFile(filePath);
-          }
-        } catch (fsErr) {
-          console.error("Tauri FS read error:", fsErr);
-          // Fallback to local storage if file doesn't exist yet but we are in Tauri
-          storedData = localStorage.getItem(VAULT_STORAGE_KEY);
-        }
-      } else {
-        storedData = localStorage.getItem(VAULT_STORAGE_KEY);
-      }
+      let storedData = await (window as any).api.readVault();
 
       if (storedData) {
         const payload = JSON.parse(storedData);
@@ -263,7 +314,17 @@ export default function App() {
 
         const decrypted = await decryptData(encryptedBlob, passphrase);
         try {
-            setEntries(JSON.parse(decrypted));
+            const parsed = JSON.parse(decrypted);
+            // Handle legacy format vs new VaultData format
+            if (Array.isArray(parsed)) {
+                setEntries(parsed);
+                setCustomBrands([]);
+            } else {
+                setEntries(parsed.entries || []);
+                setCustomBrands(parsed.customBrands || []);
+            }
+            if (!isRecoveryMode) setStoredRecoveryKey(payload.rk);
+            await new Promise(resolve => setTimeout(resolve, 50));
         } catch (parseErr) {
             throw new Error('Vault data is corrupted (invalid JSON).');
         }
@@ -271,8 +332,9 @@ export default function App() {
         const rk = generateRecoveryKey();
         setGeneratedRecoveryKey(rk);
         setEntries([]);
+        setCustomBrands([]);
       }
-      setIsLocked(false);
+      requestAnimationFrame(() => setIsLocked(false));
     } catch (err: any) {
       console.error('Unlock error:', err);
       setError(err.message || 'An unexpected error occurred.');
@@ -281,27 +343,16 @@ export default function App() {
     }
   };
 
-  const saveVault = async (updatedEntries: VaultEntry[], currentPassphrase = passphrase, rk = storedRecoveryKey) => {
+  const saveVault = async (updatedEntries: VaultEntry[], updatedBrands = customBrands, currentPassphrase = passphrase, rk = storedRecoveryKey) => {
     if (!currentPassphrase || !rk) return;
     try {
-      const dataStr = JSON.stringify(updatedEntries);
+      const dataStr = JSON.stringify({ entries: updatedEntries, customBrands: updatedBrands });
       const encryptedPass = await encryptData(dataStr, currentPassphrase);
       const encryptedRec = await encryptData(dataStr, rk);
-      const payload = { p: encryptedPass, r: encryptedRec };
+      const payload = { p: encryptedPass, r: encryptedRec, rk: rk };
       const payloadStr = JSON.stringify(payload);
 
-      if (isTauri()) {
-        const filePath = await join(await appDataDir(), NATIVE_FILE_NAME);
-        
-        // Ensure AppData directory exists (handled automatically by writeTextFile if baseDir is set, but we are using absolute paths here so we might need to rely on Tauri's rust side. For safety, we will just write the file using BaseDirectory)
-        await writeTextFile(NATIVE_FILE_NAME, payloadStr, { baseDir: BaseDirectory.AppData });
-        
-        // Also create a backup
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        await writeTextFile(`${NATIVE_FILE_NAME}.backup.${timestamp}`, payloadStr, { baseDir: BaseDirectory.AppData });
-      } else {
-        localStorage.setItem(VAULT_STORAGE_KEY, payloadStr);
-      }
+      await (window as any).api.writeVault(payloadStr);
     } catch (err) {
       console.error(err);
       showToast('Failed to save vault securely', 'error');
@@ -312,70 +363,86 @@ export default function App() {
     if (generatedRecoveryKey) {
       localStorage.setItem('mavault_rk', generatedRecoveryKey);
       setStoredRecoveryKey(generatedRecoveryKey);
-      await saveVault([], passphrase, generatedRecoveryKey);
+      await saveVault([], [], passphrase, generatedRecoveryKey);
       setGeneratedRecoveryKey(null);
       showToast('Vault created and secured.');
     }
   };
 
+  const [iconSearchTerm, setIconSearchTerm] = useState('');
+  const [showIconPicker, setShowIconPicker] = useState(false);
+
+  const filteredIcons = useMemo(() => {
+    if (!iconSearchTerm) return POPULAR_BRANDS;
+    return POPULAR_BRANDS.filter(b => b.name.toLowerCase().includes(iconSearchTerm.toLowerCase()));
+  }, [iconSearchTerm]);
+
   const handleSaveEntry = async (e: React.FormEvent) => {
     e.preventDefault();
-    let tags = newEntry.tagsString ? newEntry.tagsString.split(',').map(t => t.trim()).filter(t => t !== '') : [];
     
-    // Auto-Tag Heuristics (Dynamic + Known)
-    const knownCategories = ['driftaline', 'immigro', 'interviewamigo', 'mavia', 'safoora', 'shakeel', 'personal', 'work', 'finance'];
-    
-    // Extract all unique existing tags from the vault to act as dynamic categories
-    const existingTags = new Set(knownCategories);
-    entries.forEach(entry => {
-        if (entry.tags) {
-            entry.tags.forEach(t => existingTags.add(t.toLowerCase()));
-        }
-    });
+    // Explicitly grab the current entry icon and other field values to avoid closure/stale-state issues
+    const currentIcon = entryIcon;
+    const currentTags = newEntry.tagsString ? newEntry.tagsString.split(',').map(t => t.trim()).filter(t => t !== '') : [];
 
-    const searchTarget = `${newEntry.name || ''} ${newEntry.website || ''} ${newEntry.notes || ''}`.toLowerCase();
-    
-    // Check against all known AND dynamically learned tags
-    for (const cat of Array.from(existingTags)) {
-      if (searchTarget.includes(cat)) {
-        // Find original casing if it exists, otherwise capitalize first letter
-        const originalCasingTag = entries.flatMap(e => e.tags || []).find(t => t.toLowerCase() === cat);
-        const capitalizedTag = originalCasingTag || (cat.charAt(0).toUpperCase() + cat.slice(1));
+    try {
+        let updatedBrands = [...customBrands];
+        if (customBrandInput.name && customBrandInput.domain) {
+            updatedBrands.push({ id: crypto.randomUUID(), ...customBrandInput });
+            setCustomBrands(updatedBrands);
+        }
+
+        const entry: VaultEntry = {
+          id: editingEntry ? editingEntry.id : crypto.randomUUID(),
+          name: newEntry.name || 'Untitled',
+          username: newEntry.username || '',
+          password: newEntry.password || '',
+          website: newEntry.website || '',
+          notes: newEntry.notes || '',
+          type: newEntry.type as any,
+          tags: currentTags,
+          lastUpdated: new Date().toISOString(),
+          customIcon: currentIcon, // Now explicitly using the captured icon state
+        };
         
-        if (!tags.includes(capitalizedTag)) {
-          tags.push(capitalizedTag);
-        }
-      }
+        const updatedEntries = editingEntry ? entries.map(e => e.id === editingEntry.id ? entry : e) : [entry, ...entries];
+        setEntries(updatedEntries);
+        await saveVault(updatedEntries, updatedBrands);
+        
+        // Success cleanup
+        setShowAddModal(false);
+        setEditingEntry(null);
+        setEntryIcon(undefined);
+        setCustomBrandInput({ name: '', domain: '' });
+        setSelectedEntryId(entry.id);
+        setNewEntry({ type: 'password', name: '', username: '', password: '', website: '', notes: '', tagsString: '' });
+        setShowPassword(false);
+        showToast(editingEntry ? 'Entry updated' : 'Entry added');
+    } catch (err) {
+        showToast('Failed to save entry', 'error');
     }
-
-    const entry: VaultEntry = {
-      id: editingEntry ? editingEntry.id : crypto.randomUUID(),
-      name: newEntry.name || 'Untitled',
-      username: newEntry.username || '',
-      password: newEntry.password,
-      website: newEntry.website,
-      notes: newEntry.notes,
-      type: newEntry.type as any,
-      tags: tags,
-      lastUpdated: new Date().toISOString(),
-    };
-    let updatedEntries = editingEntry ? entries.map(e => e.id === editingEntry.id ? entry : e) : [entry, ...entries];
-    setEntries(updatedEntries);
-    await saveVault(updatedEntries);
-    setShowAddModal(false);
-    setEditingEntry(null);
-    setSelectedEntryId(entry.id);
-    setNewEntry({ type: 'password', name: '', username: '', password: '', website: '', notes: '', tagsString: '' });
-    setShowPassword(false);
-    showToast(editingEntry ? 'Entry updated' : 'Entry added');
   };
 
   const startEditing = (entry: VaultEntry) => {
     setEditingEntry(entry);
     setNewEntry({ ...entry, tagsString: entry.tags?.join(', ') || '' });
+    setEntryIcon(entry.customIcon);
+
+    // Check custom brands first
+    const customBrand = customBrands.find(b => entry.website?.includes(b.domain) || entry.name.toLowerCase().includes(b.name.toLowerCase()));
+
+    // Fallback to internal heuristics
+    const heuristicBrand = getHeuristicBrand(entry.name, entry.website || '');
+
+    if (customBrand) {
+        setCustomBrandInput({ name: customBrand.name, domain: customBrand.domain });
+    } else if (heuristicBrand) {
+        setCustomBrandInput({ name: heuristicBrand.name, domain: heuristicBrand.domain });
+    } else {
+        setCustomBrandInput({ name: '', domain: '' });
+    }
+
     setShowAddModal(true);
   };
-
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
     showToast(`${label} copied!`);
@@ -403,6 +470,7 @@ export default function App() {
     const matchesSearch = e.name.toLowerCase().includes(query) || 
                          (e.username?.toLowerCase().includes(query)) ||
                          (e.tags?.some(t => t.toLowerCase().includes(query)));
+    console.log(`DEBUG: Filter check - Name: ${e.name}, ActiveTab: ${activeTab}, Type: ${e.type}, MatchesSearch: ${matchesSearch}`);
     if (activeTab === 'vault') return matchesSearch && e.type === 'password';
     if (activeTab === 'notes') return matchesSearch && e.type === 'note';
     if (activeTab === 'recovery') return matchesSearch && e.type === 'recovery';
@@ -608,7 +676,7 @@ export default function App() {
                   <Plus size={14} /> Add
                 </button>
                 <button className={`btn btn-ghost ${isGroupedView ? 'active' : ''}`} title="Toggle Folders" onClick={() => setIsGroupedView(!isGroupedView)} style={{ background: isGroupedView ? 'var(--glass-bg-active)' : '' }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinelinejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>
                 </button>
                 <button className="btn btn-ghost" title="Smart Import" onClick={() => setShowImportModal(true)}>
                   <ExternalLink size={14} />
@@ -617,9 +685,15 @@ export default function App() {
             </div>
             <div className="entry-scroll">
               {(() => {
+                console.log(`DEBUG: Rendering entries. Total count: ${entries.length}, Filtered count: ${filteredEntries.length}`);
+                if (filteredEntries.length === 0) {
+                    return <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)' }}>No entries found.</div>;
+                }
+
                 if (!isGroupedView || searchTerm) {
                   return filteredEntries.map(entry => {
-                    const domain = getDomain(entry.website, entry.name);
+                    console.log("DEBUG: Rendering entry in list:", entry.name);
+                    const domain = getDomain(entry.website, entry.name, customBrands);
                     const iconUrl = getIconUrl(domain);
                     const brandColor = getBrandColor(domain);
 
@@ -866,7 +940,12 @@ export default function App() {
                   )}
                   <div className="form-group">
                     <label>Website URL</label>
-                    <input value={newEntry.website} onChange={e => setNewEntry({...newEntry, website: e.target.value})} placeholder="https://..." />
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <input value={newEntry.website} onChange={e => setNewEntry({...newEntry, website: e.target.value})} placeholder="https://..." />
+                      <button type="button" className="btn btn-ghost" onClick={runAutoDetect} title="Auto-Detect">
+                        <RefreshCw size={14} />
+                      </button>
+                    </div>
                   </div>
                 </>
               )}
@@ -880,11 +959,97 @@ export default function App() {
                 <label>Tags (comma separated)</label>
                 <input value={newEntry.tagsString} onChange={e => setNewEntry({...newEntry, tagsString: e.target.value})} placeholder="Work, Social..." />
               </div>
-              <div className="modal-actions">
-                <button type="button" className="btn btn-ghost" onClick={() => { setShowAddModal(false); setEditingEntry(null); }}>Cancel</button>
-                <button type="submit" className="btn btn-primary">Save Entry</button>
+
+              <div className="custom-brand-section">
+                <label>Custom Brand & Icon</label>
+                <div className="avatar-preview">
+                  <div className="brand-orb" style={{ '--brand-color': getBrandColor(customBrandInput.domain || getDomain(newEntry.website, newEntry.name)) } as any}>
+                    {(() => {
+                      const domain = customBrandInput.domain || getDomain(newEntry.website, newEntry.name);
+                      const iconUrl = getIconUrl(domain);
+                      const brandColor = getBrandColor(domain);
+                      return newEntry.customIcon ? (
+                        <img src={newEntry.customIcon} alt="" />
+                      ) : iconUrl ? (
+                        <img src={iconUrl} alt="" onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                          e.currentTarget.parentElement!.innerHTML = `<img src="${getLetterAvatar(customBrandInput.name || newEntry.name || '?', brandColor)}" alt="" />`;
+                        }} />
+                      ) : (
+                        <img src={getLetterAvatar(customBrandInput.name || newEntry.name || '?', brandColor)} alt="" />
+                      );
+                    })()}
+                  </div>
+                  <div className="avatar-preview-text">
+                    <h4>{customBrandInput.name || newEntry.name || 'Brand Preview'}</h4>
+                    <p>{customBrandInput.domain || getDomain(newEntry.website, newEntry.name) || 'No domain detected'}</p>
+                  </div>
+                  <label className="avatar-upload-btn">
+                    <Upload size={14} /> Upload
+                    <input type="file" accept="image/*" onChange={handleCustomIconUpload} style={{ display: 'none' }} />
+                  </label>
+                  <button type="button" className="btn btn-ghost" onClick={() => setShowIconPicker(!showIconPicker)}>
+                    {showIconPicker ? 'Hide' : 'Pick'}
+                  </button>
+                </div>
+
+                {showIconPicker && (
+                  <div className="icon-picker-container animate-fade-in">
+                    <div className="icon-picker-search">
+                      <Search size={14} className="search-icon" />
+                      <input 
+                        placeholder="Search popular brands..." 
+                        value={iconSearchTerm} 
+                        onChange={e => setIconSearchTerm(e.target.value)}
+                        onClick={e => e.stopPropagation()}
+                      />
+                    </div>
+                    <div className="icon-grid">
+                      {filteredIcons.map(brand => (
+                        <div 
+                          key={brand.domain} 
+                          className={`icon-item ${customBrandInput.domain === brand.domain ? 'active' : ''}`}
+                          onClick={() => setCustomBrandInput({ name: brand.name, domain: brand.domain })}
+                        >
+                          <img src={getIconUrl(brand.domain)!} alt={brand.name} />
+                          <span>{brand.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="custom-brand-grid" style={{ marginTop: '16px' }}>
+                  <input placeholder="Override Name" value={customBrandInput.name} onChange={e => setCustomBrandInput({...customBrandInput, name: e.target.value})} />
+                  <input placeholder="Override Domain" value={customBrandInput.domain} onChange={e => setCustomBrandInput({...customBrandInput, domain: e.target.value})} />
+                </div>
               </div>
             </form>
+
+            <div style={{ 
+              marginTop: '24px', 
+              paddingTop: '20px', 
+              borderTop: '1px solid var(--glass-border)', 
+              display: 'flex', 
+              justifyContent: 'flex-end', 
+              gap: '12px' 
+            }}>
+              <button 
+                type="button" 
+                className="btn btn-ghost" 
+                onClick={() => { setShowAddModal(false); setEditingEntry(null); }}
+              >
+                Cancel
+              </button>
+              <button 
+                type="button" 
+                className="btn btn-primary" 
+                onClick={handleSaveEntry}
+                style={{ cursor: 'pointer', zIndex: 9999, pointerEvents: 'auto' }}
+              >
+                Save Entry
+              </button>
+            </div>
           </div>
         </div>
       )}
