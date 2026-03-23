@@ -2,7 +2,7 @@
 
 A high-security, hyper-local password manager built with React, Vite, and Electron. Designed for users who demand absolute control over their data without relying on cloud servers or third-party databases.
 
-## 🛡️ Core Security Architecture
+## Core Security Architecture
 
 Mavault was built with a "Zero-Trust Local" philosophy. Your data is protected by multiple layers of active and passive security measures:
 
@@ -12,7 +12,7 @@ Mavault was built with a "Zero-Trust Local" philosophy. Your data is protected b
 4. **Inactivity Auto-Lock:** Mavault monitors mouse and keyboard activity. After 5 minutes of total inactivity, it forcefully purges decryption keys from memory and returns to the lock screen.
 5. **Anti-Screenshot Protection:** Mavault utilizes native OS flags to block background applications from recording or screenshotting the vault window, preventing malicious data scraping.
 
-## 🔄 How to Change Your Master Passphrase
+## How to Change Your Master Passphrase
 
 Since Mavault does not use cloud servers, there is no "Forgot Password" email link. However, you can securely migrate your data to a new passphrase using the built-in export tools:
 
@@ -25,7 +25,7 @@ Since Mavault does not use cloud servers, there is no "Forgot Password" email li
 7. Select the `mavault_backup.sec` file you exported in Step 3. The app will detect that the file uses your old password and will prompt you to enter it once to decrypt the backup.
 8. Your entire vault will instantly merge into your new setup, now secured by your new Master Passphrase!
 
-## 🚀 Building & Running Locally
+## Building & Running Locally
 
 ### Development
 ```bash
@@ -45,7 +45,7 @@ This will generate a portable `mavault-win32-x64` folder inside the `dist` direc
 npm run build:mac
 ```
 
-## ✈️ Cross-Platform Migration
+## Cross-Platform Migration
 
 Mavault makes it easy to move your vault between Windows, macOS, and Linux without ever touching the cloud.
 
@@ -64,7 +64,7 @@ Mavault makes it easy to move your vault between Windows, macOS, and Linux witho
 4. Go to **Settings & Data** > **Import All** and select your backup file.
 5. Enter your **original Master Passphrase** when prompted to decrypt and merge the data.
 
-### 🍎 Important for macOS Users
+### Important for macOS Users
 Since Mavault is a high-security, local-only tool, it is distributed as an **unsigned** application. macOS Gatekeeper will block it by default.
 1. Drag Mavault from the `.dmg` to your **Applications** folder.
 2. **Right-click** the Mavault app and select **Open**.
