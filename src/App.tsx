@@ -90,23 +90,49 @@ export default function App() {
     }));
   };
 
+  const [showBackupPassphraseModal, setShowBackupPassphraseModal] = useState<{ isOpen: boolean, resolve: (pass: string | null) => void, reject: () => void }>({ isOpen: false, resolve: () => {}, reject: () => {} });
+  const [backupPassphraseInput, setBackupPassphraseInput] = useState('');
+
+  const promptForBackupPassphrase = (): Promise<string | null> => {
+    return new Promise((resolve, reject) => {
+      setBackupPassphraseInput('');
+      setShowBackupPassphraseModal({ isOpen: true, resolve, reject });
+    });
+  };
+
   const handleImportVault = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     try {
         const encryptedData = await readFileAsText(file);
-        const decrypted = await decryptData(encryptedData, passphrase);
+        
+        let decrypted: string | null = null;
+        try {
+            decrypted = await decryptData(encryptedData, passphrase);
+        } catch (decryptErr) {
+            // If it fails with current passphrase, prompt for the file's original passphrase using custom modal
+            const backupPassword = await promptForBackupPassphrase();
+            if (!backupPassword) {
+                showToast('Import cancelled.', 'error');
+                e.target.value = '';
+                return;
+            }
+            decrypted = await decryptData(encryptedData, backupPassword);
+        }
+
+        if (!decrypted) throw new Error("Failed to decrypt.");
+
         const importedEntries = JSON.parse(decrypted);
         
-        if (window.confirm(`Merge ${importedEntries.length} entries into your current vault?`)) {
+        if (window.confirm(`Successfully decrypted! Merge ${importedEntries.length} entries into your current vault?`)) {
             const combined = [...importedEntries, ...entries];
             setEntries(combined);
             await saveVault(combined);
             showToast('Vault imported successfully!');
         }
     } catch (err: any) {
-        showToast(err.message || 'Failed to decrypt backup. Ensure you use the same passphrase.', 'error');
+        showToast(err.message || 'Failed to decrypt backup. Incorrect passphrase.', 'error');
     }
     e.target.value = ''; // Reset input
   };
@@ -572,10 +598,26 @@ export default function App() {
             <span>{isRecoveryMode ? 'Use Passphrase' : 'Use Recovery Key'}</span>
           </button>
           
-          <button className="text-button reset-vault-btn" onClick={() => {
+          <button className="text-button reset-vault-btn" onClick={async () => {
             if (window.confirm('DANGER: This will permanently delete your entire vault and all recovery keys. Are you sure?')) {
               localStorage.clear();
-              window.location.reload();
+              if (isElectron() && (window as any).api?.deleteVault) {
+                try {
+                  await (window as any).api.deleteVault();
+                } catch (e) {
+                  console.error('Failed to delete vault file', e);
+                }
+              }
+              // Reset state manually instead of reloading to prevent freezing
+              setStoredRecoveryKey(null);
+              setGeneratedRecoveryKey(null);
+              setPassphrase('');
+              setIsRecoveryMode(false);
+              setError(null);
+              setEntries([]);
+              setCustomBrands([]);
+              setIsLocked(true);
+              showToast('Vault has been completely reset.');
             }
           }}>
             <span>Reset Vault (Delete All Data)</span>
