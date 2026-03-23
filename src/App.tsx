@@ -132,27 +132,27 @@ export default function App() {
   };
 
   const handleExportPlaintext = () => {
-    const passwords = entries.filter(e => e.type === 'password');
-    if (passwords.length === 0) {
-        showToast('No passwords to export', 'error');
+    if (entries.length === 0) {
+        showToast('No data to export', 'error');
         return;
     }
 
-    if (!window.confirm('WARNING: This will download a PLAIN TEXT file with all your passwords. This is NOT SECURE. Continue?')) {
+    if (!window.confirm('WARNING: This will download a PLAIN TEXT file with ALL your data (Passwords, Notes, and Recovery Codes). This is NOT SECURE. Continue?')) {
         return;
     }
 
-    let content = '';
-    passwords.forEach(e => {
-        const parts = [
-            `USER: ${e.username}`,
-            `PASS: ${e.password || ''}`,
-            `WEB: ${e.website || ''}`,
-            `NOTE: ${e.notes?.replace(/\n/g, ' ') || ''}`,
-            `TAGS: ${(e.tags || []).join(', ')}`,
-            `DATE: ${e.lastUpdated}`
-        ];
-        content += parts.join(' --- ') + '\n';
+    let content = `MAVAULT HUMAN-READABLE EXPORT - ${new Date().toLocaleString()}\n`;
+    content += `==========================================\n\n`;
+
+    entries.forEach(e => {
+        content += `[${e.type.toUpperCase()}] ${e.name}\n`;
+        if (e.username) content += `Username: ${e.username}\n`;
+        if (e.password) content += `Password: ${e.password}\n`;
+        if (e.website)  content += `URL:      ${e.website}\n`;
+        if (e.notes)    content += `Content:  \n${e.notes}\n`;
+        if (e.tags && e.tags.length > 0) content += `Tags:     ${e.tags.join(', ')}\n`;
+        content += `Last Updated: ${new Date(e.lastUpdated).toLocaleString()}\n`;
+        content += `------------------------------------------\n\n`;
     });
 
     const blob = new Blob([content], { type: 'text/plain' });
@@ -160,12 +160,12 @@ export default function App() {
     const a = document.createElement('a');
     const dateStr = new Date().toISOString().split('T')[0];
     a.href = url;
-    a.download = `mavault_passwords_${dateStr}.txt`;
+    a.download = `mavault_full_export_${dateStr}.txt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    showToast('Plaintext export successful!');
+    showToast('Full Plaintext export successful!');
   };
 
   const handleExportCSV = () => {
@@ -175,7 +175,7 @@ export default function App() {
         return;
     }
 
-    if (!window.confirm('This will download an UNENCRYPTED CSV file. You should import this into another password manager immediately and then delete the file. Continue?')) {
+    if (!window.confirm('This will download an UNENCRYPTED CSV of your PASSWORDS ONLY. This is intended for importing into other managers. Continue?')) {
         return;
     }
 
@@ -195,7 +195,7 @@ export default function App() {
     const a = document.createElement('a');
     const dateStr = new Date().toISOString().split('T')[0];
     a.href = url;
-    a.download = `mavault_export_${dateStr}.csv`;
+    a.download = `mavault_passwords_only_${dateStr}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -307,9 +307,9 @@ export default function App() {
     });
     
     // Suggest Tags
-    const detectedTags = [];
+    const detectedTags: string[] = [];
     if (newEntry.website.includes('bank')) detectedTags.push('Finance');
-    if (newEntry.website.includes('work') || newEntry.name.toLowerCase().includes('work')) detectedTags.push('Work');
+    if (newEntry.website.includes('work') || (newEntry.name && newEntry.name.toLowerCase().includes('work'))) detectedTags.push('Work');
     
     setNewEntry(prev => ({
       ...prev,
@@ -593,11 +593,35 @@ export default function App() {
 
   const getSecurityStats = () => {
     const total = entries.length;
-    const weak = entries.filter(e => e.type === 'password' && e.password && e.password.length < 8).length;
-    const reused = entries.filter(e => 
-      e.type === 'password' && e.password && entries.filter(other => other.id !== e.id && other.password === e.password).length > 0
-    ).length;
-    return { total, weak, reused };
+    const passEntries = entries.filter(e => e.type === 'password');
+    const weakEntries = passEntries.filter(e => e.password && e.password.length < 8);
+    const reusedEntries = passEntries.filter(e => 
+      e.password && passEntries.filter(other => other.id !== e.id && other.password === e.password).length > 0
+    );
+    
+    // Heuristic Breach Check (Common Passwords)
+    const commonPasswords = ['123456', 'password', '12345678', 'qwerty', '12345', '123456789', 'admin', '1234'];
+    const breachedEntries = passEntries.filter(e => e.password && commonPasswords.includes(e.password.toLowerCase()));
+
+    // Calculate Score (0-100)
+    let score = 100;
+    if (total > 0) {
+        const penalties = (weakEntries.length * 10) + (reusedEntries.length * 15) + (breachedEntries.length * 30);
+        score = Math.max(0, 100 - penalties);
+    } else {
+        score = 0;
+    }
+
+    return { 
+      total, 
+      score,
+      weak: weakEntries.length, 
+      reused: reusedEntries.length,
+      breached: breachedEntries.length,
+      weakEntries,
+      reusedEntries,
+      breachedEntries
+    };
   };
 
   return (
@@ -642,32 +666,99 @@ export default function App() {
       {activeTab === 'security' ? (
         <main className="column-detail animate-fade-in">
           <div className="security-dashboard">
-            <h2 className="detail-name" style={{ marginBottom: '40px' }}>Security Health</h2>
             {(() => {
               const stats = getSecurityStats();
+              const scoreColor = stats.score > 80 ? 'var(--success)' : stats.score > 50 ? 'var(--warning)' : 'var(--error)';
+              
               return (
                 <>
-                  <div className="stats-grid">
-                    <div className="stat-card">
-                      <span className="stat-value">{stats.total}</span>
-                      <span className="stat-label">Total Entries</span>
-                    </div>
-                    <div className="stat-card">
-                      <span className="stat-value" style={{ color: stats.weak > 0 ? 'var(--warning)' : 'var(--success)' }}>{stats.weak}</span>
-                      <span className="stat-label">Weak Passwords</span>
-                    </div>
-                    <div className="stat-card">
-                      <span className="stat-value" style={{ color: stats.reused > 0 ? 'var(--error)' : 'var(--success)' }}>{stats.reused}</span>
-                      <span className="stat-label">Reused Passwords</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '60px' }}>
+                    <div style={{ flex: 1 }}>
+                      <h2 className="detail-name" style={{ marginBottom: '8px' }}>Security Audit</h2>
+                      <p style={{ color: 'var(--text-tertiary)', fontSize: '14px', maxWidth: '400px' }}>
+                        Analyze your vault for vulnerabilities, reused credentials, and known breaches.
+                      </p>
                     </div>
                   </div>
-                  <div className="security-recommendations">
-                    <h3 className="field-label" style={{ marginBottom: '24px' }}>Recommendations</h3>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                      {stats.weak > 0 && <div className="field-value-wrapper"><AlertCircle size={20} style={{ color: 'var(--warning)' }} /> <span>You have {stats.weak} weak passwords that should be updated.</span></div>}
-                      {stats.reused > 0 && <div className="field-value-wrapper"><AlertCircle size={20} style={{ color: 'var(--error)' }} /> <span>{stats.reused} accounts share the same password. Unique passwords are safer.</span></div>}
-                      {stats.total > 0 && stats.weak === 0 && stats.reused === 0 && <div className="field-value-wrapper"><Check size={20} style={{ color: 'var(--success)' }} /> <span>Your vault is in great health! All passwords are strong and unique.</span></div>}
+                  
+                  <div className="bento-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px', marginBottom: '48px' }}>
+                    <div className="stat-card" style={{ padding: '24px' }}>
+                      <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: '12px' }}>Breached</div>
+                      <div style={{ fontSize: '28px', fontWeight: 800, color: stats.breached > 0 ? 'var(--error)' : 'var(--text-primary)' }}>{stats.breached}</div>
                     </div>
+                    <div className="stat-card" style={{ padding: '24px' }}>
+                      <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: '12px' }}>Reused</div>
+                      <div style={{ fontSize: '28px', fontWeight: 800, color: stats.reused > 0 ? 'var(--error)' : 'var(--text-primary)' }}>{stats.reused}</div>
+                    </div>
+                    <div className="stat-card" style={{ padding: '24px' }}>
+                      <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: '12px' }}>Weak</div>
+                      <div style={{ fontSize: '28px', fontWeight: 800, color: stats.weak > 0 ? 'var(--warning)' : 'var(--text-primary)' }}>{stats.weak}</div>
+                    </div>
+                  </div>
+
+                  <div className="settings-section-title">Critical Issues</div>
+                  <div className="bento-grid" style={{ gridTemplateColumns: '1fr' }}>
+                    {/* BREACHED SECTION */}
+                    {stats.breached > 0 && (
+                      <div className="bento-card" style={{ borderColor: 'rgba(239, 68, 68, 0.3)', background: 'rgba(239, 68, 68, 0.03)' }}>
+                        <div className="bento-card-header">
+                          <div className="bento-icon-box" style={{ background: 'var(--error)', borderColor: 'transparent' }}>
+                            <AlertCircle size={20} style={{ color: 'white' }} />
+                          </div>
+                          <div>
+                            <div className="bento-card-title" style={{ marginBottom: '2px' }}>Compromised Passwords</div>
+                            <div style={{ fontSize: '12px', color: 'var(--error)', fontWeight: 600 }}>Action Required: High Risk</div>
+                          </div>
+                        </div>
+                        <div style={{ maxHeight: '200px', overflowY: 'auto', paddingRight: '8px' }}>
+                          {stats.breachedEntries.map(e => (
+                            <div key={e.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <div className="brand-orb brand-orb-small" style={{ '--brand-color': getBrandColor(getDomain(e.website, e.name)) } as any}>
+                                  {e.customIcon ? <img src={e.customIcon} alt="" /> : <Shield size={14} />}
+                                </div>
+                                <span style={{ fontSize: '14px', fontWeight: 600 }}>{e.name}</span>
+                              </div>
+                              <button className="btn btn-ghost" style={{ fontSize: '11px', height: '28px', padding: '0 12px' }} onClick={() => { setActiveTab('vault'); setSelectedEntryId(e.id); }}>Change</button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* REUSED SECTION */}
+                    {stats.reused > 0 && (
+                      <div className="bento-card">
+                        <div className="bento-card-header">
+                          <div className="bento-icon-box">
+                            <Copy size={20} className="accent" />
+                          </div>
+                          <div>
+                            <div className="bento-card-title" style={{ marginBottom: '2px' }}>Reused Passwords</div>
+                            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{stats.reused} accounts share credentials</div>
+                          </div>
+                        </div>
+                        <div style={{ maxHeight: '200px', overflowY: 'auto', paddingRight: '8px' }}>
+                          {stats.reusedEntries.map(e => (
+                            <div key={e.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <div className="brand-orb brand-orb-small" style={{ '--brand-color': getBrandColor(getDomain(e.website, e.name)) } as any}>
+                                  {e.customIcon ? <img src={e.customIcon} alt="" /> : <Shield size={14} />}
+                                </div>
+                                <span style={{ fontSize: '14px', fontWeight: 600 }}>{e.name}</span>
+                              </div>
+                              <button className="btn btn-ghost" style={{ fontSize: '11px', height: '28px', padding: '0 12px' }} onClick={() => { setActiveTab('vault'); setSelectedEntryId(e.id); }}>Unique Fix</button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {stats.total === 0 && (
+                      <div className="empty-detail" style={{ background: 'transparent' }}>
+                        <p>No password entries to analyze.</p>
+                      </div>
+                    )}
                   </div>
                 </>
               );
@@ -676,73 +767,102 @@ export default function App() {
         </main>
       ) : activeTab === 'settings' ? (
         <main className="column-detail animate-fade-in">
-            <div className="security-dashboard">
-                <h2 className="detail-name" style={{ marginBottom: '40px' }}>Vault Settings</h2>
-                
-                <h3 className="field-label" style={{ marginBottom: '24px' }}>Data Management</h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                    <div className="field-value-wrapper" style={{ justifyContent: 'space-between', padding: '24px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                        <Download size={24} className="accent" />
-                        <div>
-                        <div style={{ fontWeight: 600, fontSize: '16px' }}>Export Encrypted Vault</div>
-                        <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>Download a secure backup of all your entries.</div>
-                        </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: '12px' }}>
-                        <input type="file" id="vault-import-input" accept=".sec" style={{ display: 'none' }} onChange={handleImportVault} />
-                        <button className="btn btn-ghost" onClick={() => document.getElementById('vault-import-input')?.click()}>
-                        <Upload size={16} /> Import (.sec)
-                        </button>
-                        <button className="btn btn-primary" onClick={handleExportVault}>
-                        <Download size={16} /> Export (.sec)
-                        </button>
-                    </div>
-                    </div>
-
-                    <div className="field-value-wrapper" style={{ justifyContent: 'space-between', padding: '24px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                        <Trash2 size={24} style={{ color: 'var(--error)' }} />
-                        <div>
-                        <div style={{ fontWeight: 600, fontSize: '16px' }}>Clear All Entries</div>
-                        <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>Permanently remove all data from your vault.</div>
-                        </div>
-                    </div>
-                    <button className="btn btn-ghost" onClick={handleDeleteAllEntries} style={{ borderColor: 'var(--error)', color: 'var(--error)' }}>
-                        <Trash2 size={16} /> Delete All
-                    </button>
-                    </div>
-
-                    <div className="field-value-wrapper" style={{ justifyContent: 'space-between', padding: '24px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                        <FileText size={24} style={{ color: 'var(--warning)' }} />
-                        <div>
-                        <div style={{ fontWeight: 600, fontSize: '16px' }}>Plaintext Export</div>
-                        <div style={{ fontSize: '13px', color: 'var(--error)', marginTop: '4px' }}>Warning: This file will NOT be encrypted.</div>
-                        </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: '12px' }}>
-                        <button className="btn btn-ghost" onClick={handleExportCSV} style={{ borderColor: 'var(--warning)', color: 'var(--warning)' }}>
-                            <FileLock2 size={16} /> Export (.csv)
-                        </button>
-                        <button className="btn btn-ghost" onClick={handleExportPlaintext} style={{ borderColor: 'var(--error)' }}>
-                            <FileText size={16} /> Export (.txt)
-                        </button>
-                    </div>
-                    </div>
-                </div>
-
-                <h3 className="field-label" style={{ marginBottom: '24px', marginTop: '48px' }}>Security Configuration</h3>
-                <div className="field-value-wrapper" style={{ padding: '24px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                        <Lock size={24} className="accent" />
-                        <div>
-                            <div style={{ fontWeight: 600, fontSize: '16px' }}>Auto-Lock Timer</div>
-                            <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>Vault will lock after 5 minutes of inactivity.</div>
-                        </div>
-                    </div>
-                </div>
+          <div className="security-dashboard">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '48px' }}>
+              <div>
+                <h2 className="detail-name" style={{ marginBottom: '8px' }}>Settings & Data</h2>
+                <p style={{ color: 'var(--text-tertiary)', fontSize: '14px' }}>Manage your data and vault security policy.</p>
+              </div>
+              <div className="settings-status-pill">
+                <div className="status-indicator-dot"></div>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                  Auto-Lock: 5m Inactivity
+                </span>
+              </div>
             </div>
+            
+            <div className="settings-section-title">Official Backups (Encrypted)</div>
+            <div className="bento-grid" style={{ marginBottom: '48px' }}>
+              <div className="bento-card bento-full-width bento-full-width-row">
+                <div style={{ flex: 1 }}>
+                  <div className="bento-card-header">
+                    <div className="bento-icon-box">
+                      <Shield size={20} className="accent" />
+                    </div>
+                    <span className="copy-zone-label">Security Master File</span>
+                  </div>
+                  <div className="bento-card-title">Standard .sec Backup</div>
+                  <div className="bento-card-description" style={{ marginBottom: 0 }}>
+                    The industry standard for Mavault. Includes everything: passwords, secure notes, and recovery codes.
+                    It is completely encrypted and only your master passphrase can open this.
+                  </div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '200px' }}>
+                  <input type="file" id="vault-import-input" accept=".sec" style={{ display: 'none' }} onChange={handleImportVault} />
+                  <button className="btn btn-primary" onClick={handleExportVault}>
+                    <Download size={14} /> Export All
+                  </button>
+                  <button className="btn btn-ghost" onClick={() => document.getElementById('vault-import-input')?.click()}>
+                    <Upload size={14} /> Import All
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="settings-section-title">Portability & Exports (Plaintext)</div>
+            <div className="bento-grid" style={{ marginBottom: '48px' }}>
+              <div className="bento-card">
+                <div className="bento-card-header">
+                  <div className="bento-icon-box">
+                    <FileLock2 size={20} style={{ color: 'var(--warning)' }} />
+                  </div>
+                  <span className="copy-zone-label">CSV Format</span>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div className="bento-card-title">Passwords Only</div>
+                  <div className="bento-card-description">
+                    Optimized for moving to Bitwarden, 1Password, or Chrome.
+                  </div>
+                </div>
+                <button className="btn btn-ghost" style={{ borderColor: 'var(--warning)', color: 'var(--warning)' }} onClick={handleExportCSV}>
+                  <Download size={14} /> Export .csv
+                </button>
+              </div>
+
+              <div className="bento-card">
+                <div className="bento-card-header">
+                  <div className="bento-icon-box">
+                    <FileText size={20} style={{ color: 'var(--error)' }} />
+                  </div>
+                  <span className="copy-zone-label">TXT Format</span>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div className="bento-card-title">Full Human Readable</div>
+                  <div className="bento-card-description">
+                    Includes passwords, notes, and recovery codes in a text file.
+                  </div>
+                </div>
+                <button className="btn btn-ghost" style={{ borderColor: 'var(--error)', color: 'var(--error)' }} onClick={handleExportPlaintext}>
+                  <Download size={14} /> Export .txt
+                </button>
+              </div>
+            </div>
+
+            <div className="settings-section-title">Danger Zone</div>
+            <div className="bento-card bento-full-width" style={{ border: '1px solid rgba(239, 68, 68, 0.2)', background: 'rgba(239, 68, 68, 0.02)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: '16px', color: 'var(--error)', marginBottom: '4px' }}>Factory Reset Vault</div>
+                  <div className="bento-card-description" style={{ marginBottom: 0 }}>
+                    Permanently wipe all data from this local machine.
+                  </div>
+                </div>
+                <button className="btn btn-ghost" style={{ borderColor: 'var(--error)', color: 'var(--error)' }} onClick={handleDeleteAllEntries}>
+                  <Trash2 size={14} /> Wipe Everything
+                </button>
+              </div>
+            </div>
+          </div>
         </main>
       ) : (
         <>
@@ -906,6 +1026,27 @@ export default function App() {
                   <div className="bento-grid">
                     {selectedEntry.type === 'password' && (
                       <div className="bento-card bento-full-width">
+                        {(() => {
+                          const isWeak = selectedEntry.password && selectedEntry.password.length < 8;
+                          const isReused = selectedEntry.password && entries.some(e => e.id !== selectedEntry.id && e.type === 'password' && e.password === selectedEntry.password);
+                          
+                          if (isWeak || isReused) {
+                            return (
+                              <div style={{ padding: '16px', background: isReused ? 'rgba(239, 68, 68, 0.05)' : 'rgba(234, 179, 8, 0.05)', borderRadius: '12px', border: `1px solid ${isReused ? 'rgba(239, 68, 68, 0.2)' : 'rgba(234, 179, 8, 0.2)'}`, marginBottom: '16px', display: 'flex', gap: '12px', alignItems: 'center' }}>
+                                <AlertCircle size={20} style={{ color: isReused ? 'var(--error)' : 'var(--warning)', flexShrink: 0 }} />
+                                <div>
+                                  <div style={{ fontSize: '13px', fontWeight: 600, color: isReused ? 'var(--error)' : 'var(--warning)', marginBottom: '4px' }}>
+                                    {isReused ? 'Critical Risk: Reused Password' : 'Moderate Risk: Weak Password'}
+                                  </div>
+                                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                    {isReused ? 'This password is used across multiple accounts. Click edit to generate a new one.' : 'This password is too short and vulnerable to attacks. Click edit to generate a stronger one.'}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
                         <div className="copy-zone" onClick={() => copyToClipboard(selectedEntry.username || '', 'Username')}>
                           <span className="copy-zone-label">Username</span>
                           <span className="copy-zone-value">{selectedEntry.username || '—'}</span>
