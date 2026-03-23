@@ -37,12 +37,16 @@ function createWindow() {
   });
 
   // In development, we load from the dev server.
-  // In production, we would load from the dist/renderer folder.
-  const devUrl = 'http://localhost:5173';
-  win.loadURL(devUrl).catch(() => {
-    // Fallback if dev server is on 5174 or other
-    win.loadURL('http://localhost:5174');
-  });
+  // In production, we load from the dist/renderer folder.
+  if (app.isPackaged) {
+    win.loadFile(path.join(__dirname, '../renderer/index.html'));
+  } else {
+    const devUrl = 'http://localhost:5173';
+    win.loadURL(devUrl).catch(() => {
+      // Fallback if dev server is on 5174 or other
+      win.loadURL('http://localhost:5174');
+    });
+  }
 }
 
 ipcMain.handle('read-vault', async () => {
