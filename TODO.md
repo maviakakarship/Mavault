@@ -24,7 +24,7 @@ This document tracks the implementation of Mavault V1 features against the offic
 ### 3. Core Vault Features
 - [x] Add New Password Entry
 - [x] **Entry Editing:** Allow users to update existing entries
-- [x] **Tags Support:** Add and filter by tags (e.g., "Important", "Work")
+- [x] **Tags Support:** Add and filter by tags (e.g., "Important", "Work") + **Heuristic Auto-Tagging**
 - [x] **Secure Notes:** Dedicated tab for multi-line encrypted notes
 - [x] **Recovery Codes Tab:** Specialized UI for storing account recovery codes (BIP-39 style)
 - [x] **Password Generator:** Integrated tool to create strong, random passwords

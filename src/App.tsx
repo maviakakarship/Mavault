@@ -1,13 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Shield, Lock, Unlock, Key, FileLock2, Search, Plus, Trash2, Copy, ExternalLink, MoreVertical, Check, AlertCircle, RefreshCw, Settings2, Eye, EyeOff, Info, Edit2, Upload, X, ArrowLeftRight, Download, FileText, Folder, FolderOpen, ChevronDown } from 'lucide-react';
+import { Shield, Lock, Unlock, Key, FileLock2, Search, Plus, Trash2, Copy, ExternalLink, MoreVertical, Check, AlertCircle, RefreshCw, Settings2, Eye, EyeOff, Info, Edit2, Upload, X, ArrowLeftRight, Download, FileText, Folder, FolderOpen, ChevronDown, Tags } from 'lucide-react';
 import { VaultEntry, CustomBrand } from './types';
 import { encryptData, decryptData, generateRecoveryKey } from './lib/crypto';
 import { generatePassword, PasswordOptions } from './lib/password';
 import { parseSmartPlaintext, readFileAsText } from './lib/importer';
-import { getDomain, getIconUrl, getBrandColor, getHeuristicBrand, POPULAR_BRANDS, getLetterAvatar } from './lib/branding';
+import { getDomain, getIconUrl, getBrandColor, getHeuristicBrand, POPULAR_BRANDS, getLetterAvatar, autoTagEntry } from './lib/branding';
 import './App.css';
-
-// ... rest of imports and helpers
 
 const VAULT_STORAGE_KEY = 'mavault_data_v2';
 const NATIVE_FILE_NAME = 'mavault_core.sec';
@@ -28,7 +26,6 @@ const getStringColor = (str: string) => {
 export default function App() {
   const [isLocked, setIsLocked] = useState(true);
   const [passphrase, setPassphrase] = useState('');
-  // ... rest of state
 
   const [isRecoveryMode, setIsRecoveryMode] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -171,6 +168,41 @@ export default function App() {
     showToast('Plaintext export successful!');
   };
 
+  const handleExportCSV = () => {
+    const passwords = entries.filter(e => e.type === 'password');
+    if (passwords.length === 0) {
+        showToast('No passwords to export', 'error');
+        return;
+    }
+
+    if (!window.confirm('This will download an UNENCRYPTED CSV file. You should import this into another password manager immediately and then delete the file. Continue?')) {
+        return;
+    }
+
+    const headers = ['name', 'url', 'username', 'password', 'notes', 'tags'];
+    const rows = passwords.map(e => [
+        `"${(e.name || '').replace(/"/g, '""')}"`,
+        `"${(e.website || '').replace(/"/g, '""')}"`,
+        `"${(e.username || '').replace(/"/g, '""')}"`,
+        `"${(e.password || '').replace(/"/g, '""')}"`,
+        `"${(e.notes || '').replace(/"/g, '""').replace(/\n/g, ' ')}"`,
+        `"${(e.tags || []).join(',')}"`
+    ]);
+
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const dateStr = new Date().toISOString().split('T')[0];
+    a.href = url;
+    a.download = `mavault_export_${dateStr}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('CSV Export successful!');
+  };
+
   const [genOptions, setGenOptions] = useState<PasswordOptions>({
     length: 16,
     useUppercase: true,
@@ -188,6 +220,10 @@ export default function App() {
     setPassphrase('');
     setEntries([]);
     setIsRecoveryMode(false);
+    setShowAddModal(false);
+    setEditingEntry(null);
+    setSelectedEntryId(null);
+    setNewEntry({ type: 'password', name: '', username: '', password: '', website: '', notes: '', tagsString: '' });
     showToast('Vault locked', 'error');
   };
 
@@ -207,7 +243,7 @@ export default function App() {
         showToast('Vault auto-locked due to inactivity', 'error');
       }, AUTO_LOCK_TIMEOUT);
     };
-    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
+    const events = ['mousedown', 'mousemove', 'scroll', 'touchstart', 'keydown'];
     events.forEach(event => document.addEventListener(event, resetTimer));
     resetTimer();
     return () => {
@@ -283,6 +319,25 @@ export default function App() {
     }));
     
     showToast('Auto-detected brand and tags!');
+  };
+
+  const handleAutoTag = async () => {
+    if (!window.confirm('This will automatically categorize all your entries based on their names and websites. Continue?')) return;
+    
+    const updatedEntries = entries.map(entry => {
+      if (entry.type !== 'password') return entry;
+      const domain = getDomain(entry.website, entry.name, customBrands);
+      const suggestedTags = autoTagEntry(entry.name, domain);
+      
+      const currentTags = entry.tags || [];
+      const newTags = Array.from(new Set([...currentTags, ...suggestedTags]));
+      
+      return { ...entry, tags: newTags };
+    });
+    
+    setEntries(updatedEntries);
+    await saveVault(updatedEntries);
+    showToast('Auto-tagged all entries!');
   };
 
   useEffect(() => {
@@ -463,19 +518,51 @@ export default function App() {
     }
   };
 
+  const handleDeleteAllEntries = async () => {
+    if (!window.confirm('DANGER: This will delete ALL entries in your vault. This action cannot be undone. Continue?')) return;
+    if (!window.confirm('FINAL WARNING: Are you absolutely sure you want to clear your entire vault?')) return;
+    
+    setEntries([]);
+    await saveVault([]);
+    setSelectedEntryId(null);
+    showToast('All entries deleted', 'error');
+  };
+
   const selectedEntry = entries.find(e => e.id === selectedEntryId);
 
-  const filteredEntries = entries.filter(e => {
-    const query = searchTerm.toLowerCase();
-    const matchesSearch = e.name.toLowerCase().includes(query) || 
-                         (e.username?.toLowerCase().includes(query)) ||
-                         (e.tags?.some(t => t.toLowerCase().includes(query)));
-    console.log(`DEBUG: Filter check - Name: ${e.name}, ActiveTab: ${activeTab}, Type: ${e.type}, MatchesSearch: ${matchesSearch}`);
-    if (activeTab === 'vault') return matchesSearch && e.type === 'password';
-    if (activeTab === 'notes') return matchesSearch && e.type === 'note';
-    if (activeTab === 'recovery') return matchesSearch && e.type === 'recovery';
-    return matchesSearch;
-  });
+  const filteredEntries = useMemo(() => {
+    return entries.filter(e => {
+      const query = searchTerm.toLowerCase();
+      const matchesSearch = e.name.toLowerCase().includes(query) || 
+                           (e.username?.toLowerCase().includes(query)) ||
+                           (e.tags?.some(t => t.toLowerCase().includes(query)));
+      
+      if (activeTab === 'vault') return matchesSearch && e.type === 'password';
+      if (activeTab === 'notes') return matchesSearch && e.type === 'note';
+      if (activeTab === 'recovery') return matchesSearch && e.type === 'recovery';
+      return matchesSearch;
+    });
+  }, [entries, searchTerm, activeTab]);
+
+  // Grouped View Logic
+  const groups = useMemo(() => {
+    const g: Record<string, VaultEntry[]> = {};
+    filteredEntries.forEach(entry => {
+      const category = (entry.tags && entry.tags.length > 0) ? entry.tags[0].toUpperCase() : 'UNCATEGORIZED';
+      if (!g[category]) g[category] = [];
+      g[category].push(entry);
+    });
+    return g;
+  }, [filteredEntries]);
+
+  // Sort groups: Uncategorized at bottom, others alphabetical
+  const sortedGroupNames = useMemo(() => {
+    return Object.keys(groups).sort((a, b) => {
+      if (a === 'UNCATEGORIZED') return 1;
+      if (b === 'UNCATEGORIZED') return -1;
+      return a.localeCompare(b);
+    });
+  }, [groups]);
 
   if (isLocked) {
     return (
@@ -633,15 +720,33 @@ export default function App() {
 
                     <div className="field-value-wrapper" style={{ justifyContent: 'space-between', padding: '24px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                        <Trash2 size={24} style={{ color: 'var(--error)' }} />
+                        <div>
+                        <div style={{ fontWeight: 600, fontSize: '16px' }}>Clear All Entries</div>
+                        <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>Permanently remove all data from your vault.</div>
+                        </div>
+                    </div>
+                    <button className="btn btn-ghost" onClick={handleDeleteAllEntries} style={{ borderColor: 'var(--error)', color: 'var(--error)' }}>
+                        <Trash2 size={16} /> Delete All
+                    </button>
+                    </div>
+
+                    <div className="field-value-wrapper" style={{ justifyContent: 'space-between', padding: '24px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                         <FileText size={24} style={{ color: 'var(--warning)' }} />
                         <div>
                         <div style={{ fontWeight: 600, fontSize: '16px' }}>Plaintext Export</div>
                         <div style={{ fontSize: '13px', color: 'var(--error)', marginTop: '4px' }}>Warning: This file will NOT be encrypted.</div>
                         </div>
                     </div>
-                    <button className="btn btn-ghost" onClick={handleExportPlaintext} style={{ borderColor: 'var(--error)' }}>
-                        <FileText size={16} /> Export (.txt)
-                    </button>
+                    <div style={{ display: 'flex', gap: '12px' }}>
+                        <button className="btn btn-ghost" onClick={handleExportCSV} style={{ borderColor: 'var(--warning)', color: 'var(--warning)' }}>
+                            <FileLock2 size={16} /> Export (.csv)
+                        </button>
+                        <button className="btn btn-ghost" onClick={handleExportPlaintext} style={{ borderColor: 'var(--error)' }}>
+                            <FileText size={16} /> Export (.txt)
+                        </button>
+                    </div>
                     </div>
                 </div>
 
@@ -677,6 +782,9 @@ export default function App() {
                 </button>
                 <button className={`btn btn-ghost ${isGroupedView ? 'active' : ''}`} title="Toggle Folders" onClick={() => setIsGroupedView(!isGroupedView)} style={{ background: isGroupedView ? 'var(--glass-bg-active)' : '' }}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>
+                </button>
+                <button className="btn btn-ghost" title="Auto-Tag Everything" onClick={handleAutoTag}>
+                  <Tags size={14} />
                 </button>
                 <button className="btn btn-ghost" title="Smart Import" onClick={() => setShowImportModal(true)}>
                   <ExternalLink size={14} />
@@ -726,21 +834,6 @@ export default function App() {
                   });
                 }
 
-                // Grouped View Logic
-                const groups: Record<string, VaultEntry[]> = {};
-                filteredEntries.forEach(entry => {
-                  const category = (entry.tags && entry.tags.length > 0) ? entry.tags[0].toUpperCase() : 'UNCATEGORIZED';
-                  if (!groups[category]) groups[category] = [];
-                  groups[category].push(entry);
-                });
-
-                // Sort groups: Uncategorized at bottom, others alphabetical
-                const sortedGroupNames = Object.keys(groups).sort((a, b) => {
-                  if (a === 'UNCATEGORIZED') return 1;
-                  if (b === 'UNCATEGORIZED') return -1;
-                  return a.localeCompare(b);
-                });
-
                 return sortedGroupNames.map(groupName => {
                   const isCollapsed = collapsedGroups[groupName];
                   return (
@@ -763,7 +856,7 @@ export default function App() {
                       <div className={`category-content-wrapper ${isCollapsed ? 'collapsed' : ''}`}>
                         <div className="category-content">
                           {groups[groupName].map(entry => {
-                            const domain = getDomain(entry.website, entry.name);
+                            const domain = getDomain(entry.website, entry.name, customBrands);
                             const iconUrl = getIconUrl(domain);
                             const brandColor = getBrandColor(domain);
 
@@ -910,18 +1003,18 @@ export default function App() {
             <form onSubmit={handleSaveEntry}>
               <div className="form-group">
                 <label>Name</label>
-                <input required value={newEntry.name} onChange={e => setNewEntry({...newEntry, name: e.target.value})} placeholder="e.g. Google, Netflix..." />
+                <input required value={newEntry.name} onChange={e => { const val = e.target.value; setNewEntry(prev => ({...prev, name: val})); }} placeholder="e.g. Google, Netflix..." />
               </div>
               {newEntry.type === 'password' && (
                 <>
                   <div className="form-group">
                     <label>Username</label>
-                    <input value={newEntry.username} onChange={e => setNewEntry({...newEntry, username: e.target.value})} />
+                    <input value={newEntry.username} onChange={e => { const val = e.target.value; setNewEntry(prev => ({...prev, username: val})); }} />
                   </div>
                   <div className="form-group">
                     <label>Password</label>
                     <div style={{ display: 'flex', gap: '8px' }}>
-                      <input type={showPassword ? "text" : "password"} style={{ flex: 1 }} value={newEntry.password} onChange={e => setNewEntry({...newEntry, password: e.target.value})} />
+                      <input type={showPassword ? "text" : "password"} style={{ flex: 1 }} value={newEntry.password} onChange={e => { const val = e.target.value; setNewEntry(prev => ({...prev, password: val})); }} />
                       <button type="button" className="btn btn-ghost" onClick={() => setShowPassword(!showPassword)}>{showPassword ? <EyeOff size={14} /> : <Eye size={14} />}</button>
                       <button type="button" className="btn btn-ghost" onClick={handleGenerate}><RefreshCw size={14} /></button>
                       <button type="button" className="btn btn-ghost" onClick={() => setShowGenerator(!showGenerator)}><Settings2 size={14} /></button>
@@ -941,7 +1034,7 @@ export default function App() {
                   <div className="form-group">
                     <label>Website URL</label>
                     <div style={{ display: 'flex', gap: '8px' }}>
-                      <input value={newEntry.website} onChange={e => setNewEntry({...newEntry, website: e.target.value})} placeholder="https://..." />
+                      <input value={newEntry.website} onChange={e => { const val = e.target.value; setNewEntry(prev => ({...prev, website: val})); }} placeholder="https://..." />
                       <button type="button" className="btn btn-ghost" onClick={runAutoDetect} title="Auto-Detect">
                         <RefreshCw size={14} />
                       </button>
@@ -952,12 +1045,12 @@ export default function App() {
               {(newEntry.type === 'note' || newEntry.type === 'recovery') && (
                 <div className="form-group">
                   <label>{newEntry.type === 'note' ? 'Content' : 'Recovery Codes'}</label>
-                  <textarea rows={6} value={newEntry.notes} onChange={e => setNewEntry({...newEntry, notes: e.target.value})} placeholder="Enter secure info..." />
+                  <textarea rows={6} value={newEntry.notes} onChange={e => { const val = e.target.value; setNewEntry(prev => ({...prev, notes: val})); }} placeholder="Enter secure info..." />
                 </div>
               )}
               <div className="form-group">
                 <label>Tags (comma separated)</label>
-                <input value={newEntry.tagsString} onChange={e => setNewEntry({...newEntry, tagsString: e.target.value})} placeholder="Work, Social..." />
+                <input value={newEntry.tagsString} onChange={e => { const val = e.target.value; setNewEntry(prev => ({...prev, tagsString: val})); }} placeholder="Work, Social..." />
               </div>
 
               <div className="custom-brand-section">

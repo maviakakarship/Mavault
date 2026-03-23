@@ -247,6 +247,30 @@ const BRAND_COLORS: Record<string, string> = {
   'wordpress.com': '#21759b'
 };
 
+export const CATEGORIES: Record<string, string[]> = {
+  'DriftAline': ['driftaline', 'drift aline', 'da'],
+  'Shakeel': ['shakeel'],
+  'Safoora': ['safoora'],
+  'Personal': ['personal', 'private', 'home', 'family', 'my', 'me']
+};
+
+export function autoTagEntry(name: string, domain: string | null): string[] {
+  const tags = new Set<string>();
+  const cleanName = name.toLowerCase();
+  const cleanDomain = domain ? domain.toLowerCase() : '';
+
+  for (const [category, keywords] of Object.entries(CATEGORIES)) {
+    for (const kw of keywords) {
+      if (cleanName.includes(kw) || cleanDomain.includes(kw)) {
+        tags.add(category);
+        break;
+      }
+    }
+  }
+
+  return Array.from(tags);
+}
+
 export function getBrandColor(domain: string | null): string {
   if (!domain) return '#3b82f6';
   const cleanDomain = domain.toLowerCase();

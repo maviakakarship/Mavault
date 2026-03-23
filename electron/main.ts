@@ -3,18 +3,25 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 
-// Use standard node path resolution
-const __dirname = path.resolve();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 function createWindow() {
   const win = new BrowserWindow({
-    width: 1000,
-    height: 800,
+    width: 1200,
+    height: 900,
+    show: false,
+    autoHideMenuBar: true,
     webPreferences: {
-      preload: path.join(__dirname, 'electron', 'preload.js'),
+      preload: path.join(__dirname, '../preload/preload.mjs'),
+      sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
     },
+  });
+
+  win.on('ready-to-show', () => {
+    win.show();
   });
 
   // Enable screenshot/recording protection
@@ -29,11 +36,13 @@ function createWindow() {
     win.webContents.send('trigger-lock');
   });
 
-  win.webContents.on('did-fail-load', (event, code, desc) => {
-    console.log(`Failed to load: ${desc} (${code})`);
+  // In development, we load from the dev server.
+  // In production, we would load from the dist/renderer folder.
+  const devUrl = 'http://localhost:5173';
+  win.loadURL(devUrl).catch(() => {
+    // Fallback if dev server is on 5174 or other
+    win.loadURL('http://localhost:5174');
   });
-
-  win.loadURL('http://localhost:5173');
 }
 
 ipcMain.handle('read-vault', async () => {
