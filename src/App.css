@@ -1021,7 +1021,7 @@
   border-radius: 12px !important;
   background: rgba(0, 0, 0, 0.3) !important;
   border: 1px solid var(--glass-border) !important;
-  color: var(--text-primary) !important;
+  color: #ffffff !important;
 }
 
 .modal-actions {
@@ -1055,6 +1055,7 @@
   background: rgba(0, 0, 0, 0.2) !important;
   border: 1px solid var(--glass-border) !important;
   border-radius: 10px !important;
+  color: #ffffff !important;
 }
 
 .icon-picker-search .search-icon {
