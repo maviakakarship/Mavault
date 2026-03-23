@@ -456,22 +456,21 @@ export default function App() {
     return POPULAR_BRANDS.filter(b => b.name.toLowerCase().includes(iconSearchTerm.toLowerCase()));
   }, [iconSearchTerm]);
 
-  const handleSaveEntry = async (e: React.FormEvent) => {
-    if (e) e.preventDefault();
+  const handleSaveEntry = async (e?: React.FormEvent | React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     
     const currentTags = newEntry.tagsString ? newEntry.tagsString.split(',').map(t => t.trim()).filter(t => t !== '') : [];
 
     try {
-        // If the user provided overrides in the branding section, we apply them to the entry directly
-        const finalName = customBrandInput.name || newEntry.name || 'Untitled';
-        const finalWebsite = customBrandInput.domain || newEntry.website || '';
-
-        const entry: VaultEntry = {
+        const entryToSave: VaultEntry = {
           id: editingEntry ? editingEntry.id : crypto.randomUUID(),
-          name: finalName,
+          name: newEntry.name || 'Untitled',
           username: newEntry.username || '',
           password: newEntry.password || '',
-          website: finalWebsite,
+          website: newEntry.website || '',
           notes: newEntry.notes || '',
           type: newEntry.type as any,
           tags: currentTags,
@@ -479,20 +478,36 @@ export default function App() {
           customIcon: newEntry.customIcon, 
         };
         
-        const updatedEntries = editingEntry ? entries.map(e => e.id === editingEntry.id ? entry : e) : [entry, ...entries];
+        let newEntriesList;
+        if (editingEntry) {
+            newEntriesList = entries.map(e => e.id === editingEntry.id ? entryToSave : e);
+        } else {
+            newEntriesList = [entryToSave, ...entries];
+        }
         
-        // Save to state AND storage immediately
-        setEntries(updatedEntries);
-        await saveVault(updatedEntries, customBrands);
+        // Push any custom brand overrides strictly to the customBrands dictionary
+        let updatedBrands = [...customBrands];
+        if (customBrandInput.name && customBrandInput.domain) {
+            const exists = updatedBrands.some(b => b.domain === customBrandInput.domain);
+            if (!exists) {
+                updatedBrands.push({ id: crypto.randomUUID(), name: customBrandInput.name, domain: customBrandInput.domain });
+                setCustomBrands(updatedBrands);
+            }
+        }
+
+        setEntries(newEntriesList);
+        await saveVault(newEntriesList, updatedBrands);
         
+        // UI Cleanup
         setShowAddModal(false);
         setEditingEntry(null);
         setCustomBrandInput({ name: '', domain: '' });
-        setSelectedEntryId(entry.id);
+        setSelectedEntryId(entryToSave.id);
         setNewEntry({ type: 'password', name: '', username: '', password: '', website: '', notes: '', tagsString: '', customIcon: undefined });
         setShowPassword(false);
         showToast(editingEntry ? 'Entry updated' : 'Entry added');
-    } catch (err) {
+    } catch (err: any) {
+        console.error("Save Error:", err);
         showToast('Failed to save entry', 'error');
     }
   };
@@ -501,8 +516,7 @@ export default function App() {
     setEditingEntry(entry);
     setNewEntry({ ...entry, tagsString: entry.tags?.join(', ') || '', customIcon: entry.customIcon });
     
-    // Set overrides to match current entry values so user can see them
-    setCustomBrandInput({ name: entry.name, domain: entry.website || '' });
+    setCustomBrandInput({ name: '', domain: '' }); // Clear overrides so they don't leak
 
     setShowAddModal(true);
   };
@@ -1216,18 +1230,18 @@ export default function App() {
             <form onSubmit={handleSaveEntry}>
               <div className="form-group">
                 <label>Name</label>
-                <input required value={newEntry.name} onChange={e => { const val = e.target.value; setNewEntry(prev => ({...prev, name: val})); }} placeholder="e.g. Google, Netflix..." />
+                <input required value={newEntry.name || ''} onChange={e => { const val = e.target.value; setNewEntry(prev => ({...prev, name: val})); }} placeholder="e.g. Google, Netflix..." />
               </div>
               {newEntry.type === 'password' && (
                 <>
                   <div className="form-group">
                     <label>Username</label>
-                    <input value={newEntry.username} onChange={e => { const val = e.target.value; setNewEntry(prev => ({...prev, username: val})); }} />
+                    <input value={newEntry.username || ''} onChange={e => { const val = e.target.value; setNewEntry(prev => ({...prev, username: val})); }} />
                   </div>
                   <div className="form-group">
                     <label>Password</label>
                     <div style={{ display: 'flex', gap: '8px' }}>
-                      <input type={showPassword ? "text" : "password"} style={{ flex: 1 }} value={newEntry.password} onChange={e => { const val = e.target.value; setNewEntry(prev => ({...prev, password: val})); }} />
+                      <input type={showPassword ? "text" : "password"} style={{ flex: 1 }} value={newEntry.password || ''} onChange={e => { const val = e.target.value; setNewEntry(prev => ({...prev, password: val})); }} />
                       <button type="button" className="btn btn-ghost" onClick={() => setShowPassword(!showPassword)}>{showPassword ? <EyeOff size={14} /> : <Eye size={14} />}</button>
                       <button type="button" className="btn btn-ghost" onClick={handleGenerate}><RefreshCw size={14} /></button>
                       <button type="button" className="btn btn-ghost" onClick={() => setShowGenerator(!showGenerator)}><Settings2 size={14} /></button>
@@ -1247,7 +1261,7 @@ export default function App() {
                   <div className="form-group">
                     <label>Website URL</label>
                     <div style={{ display: 'flex', gap: '8px' }}>
-                      <input value={newEntry.website} onChange={e => { const val = e.target.value; setNewEntry(prev => ({...prev, website: val})); }} placeholder="https://..." />
+                      <input value={newEntry.website || ''} onChange={e => { const val = e.target.value; setNewEntry(prev => ({...prev, website: val})); }} placeholder="https://..." />
                       <button type="button" className="btn btn-ghost" onClick={runAutoDetect} title="Auto-Detect">
                         <RefreshCw size={14} />
                       </button>
@@ -1258,20 +1272,20 @@ export default function App() {
               {(newEntry.type === 'note' || newEntry.type === 'recovery') && (
                 <div className="form-group">
                   <label>{newEntry.type === 'note' ? 'Content' : 'Recovery Codes'}</label>
-                  <textarea rows={6} value={newEntry.notes} onChange={e => { const val = e.target.value; setNewEntry(prev => ({...prev, notes: val})); }} placeholder="Enter secure info..." />
+                  <textarea rows={6} value={newEntry.notes || ''} onChange={e => { const val = e.target.value; setNewEntry(prev => ({...prev, notes: val})); }} placeholder="Enter secure info..." />
                 </div>
               )}
               <div className="form-group">
                 <label>Tags (comma separated)</label>
-                <input value={newEntry.tagsString} onChange={e => { const val = e.target.value; setNewEntry(prev => ({...prev, tagsString: val})); }} placeholder="Work, Social..." />
+                <input value={newEntry.tagsString || ''} onChange={e => { const val = e.target.value; setNewEntry(prev => ({...prev, tagsString: val})); }} placeholder="Work, Social..." />
               </div>
 
               <div className="custom-brand-section">
                 <label>Custom Brand & Icon</label>
                 <div className="avatar-preview">
-                  <div className="brand-orb" style={{ '--brand-color': getBrandColor(customBrandInput.domain || getDomain(newEntry.website, newEntry.name)) } as any}>
+                  <div className="brand-orb" style={{ '--brand-color': getBrandColor(customBrandInput.domain || getDomain(newEntry.website || '', newEntry.name || '')) } as any}>
                     {(() => {
-                      const domain = customBrandInput.domain || getDomain(newEntry.website, newEntry.name);
+                      const domain = customBrandInput.domain || getDomain(newEntry.website || '', newEntry.name || '');
                       const iconUrl = getIconUrl(domain);
                       const brandColor = getBrandColor(domain);
                       return newEntry.customIcon ? (
@@ -1288,7 +1302,7 @@ export default function App() {
                   </div>
                   <div className="avatar-preview-text">
                     <h4>{customBrandInput.name || newEntry.name || 'Brand Preview'}</h4>
-                    <p>{customBrandInput.domain || getDomain(newEntry.website, newEntry.name) || 'No domain detected'}</p>
+                    <p>{customBrandInput.domain || getDomain(newEntry.website || '', newEntry.name || '') || 'No domain detected'}</p>
                   </div>
                   <label className="avatar-upload-btn">
                     <Upload size={14} /> Upload
@@ -1305,7 +1319,7 @@ export default function App() {
                       <Search size={14} className="search-icon" />
                       <input 
                         placeholder="Search popular brands..." 
-                        value={iconSearchTerm} 
+                        value={iconSearchTerm || ''} 
                         onChange={e => setIconSearchTerm(e.target.value)}
                         onClick={e => e.stopPropagation()}
                       />
@@ -1326,36 +1340,35 @@ export default function App() {
                 )}
 
                 <div className="custom-brand-grid" style={{ marginTop: '16px' }}>
-                  <input placeholder="Override Name" value={customBrandInput.name} onChange={e => setCustomBrandInput({...customBrandInput, name: e.target.value})} />
-                  <input placeholder="Override Domain" value={customBrandInput.domain} onChange={e => setCustomBrandInput({...customBrandInput, domain: e.target.value})} />
+                  <input placeholder="Override Name" value={customBrandInput.name || ''} onChange={e => setCustomBrandInput({...customBrandInput, name: e.target.value})} />
+                  <input placeholder="Override Domain" value={customBrandInput.domain || ''} onChange={e => setCustomBrandInput({...customBrandInput, domain: e.target.value})} />
                 </div>
               </div>
+              <div style={{ 
+                marginTop: '24px', 
+                paddingTop: '20px', 
+                borderTop: '1px solid var(--glass-border)', 
+                display: 'flex', 
+                justifyContent: 'flex-end', 
+                gap: '12px' 
+              }}>
+                <button 
+                  type="button" 
+                  className="btn btn-ghost" 
+                  onClick={() => { setShowAddModal(false); setEditingEntry(null); }}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="button" 
+                  className="btn btn-primary" 
+                  onClick={handleSaveEntry}
+                  style={{ cursor: 'pointer', zIndex: 9999, pointerEvents: 'auto' }}
+                >
+                  Save Entry
+                </button>
+              </div>
             </form>
-
-            <div style={{ 
-              marginTop: '24px', 
-              paddingTop: '20px', 
-              borderTop: '1px solid var(--glass-border)', 
-              display: 'flex', 
-              justifyContent: 'flex-end', 
-              gap: '12px' 
-            }}>
-              <button 
-                type="button" 
-                className="btn btn-ghost" 
-                onClick={() => { setShowAddModal(false); setEditingEntry(null); }}
-              >
-                Cancel
-              </button>
-              <button 
-                type="button" 
-                className="btn btn-primary" 
-                onClick={handleSaveEntry}
-                style={{ cursor: 'pointer', zIndex: 9999, pointerEvents: 'auto' }}
-              >
-                Save Entry
-              </button>
-            </div>
           </div>
         </div>
       )}

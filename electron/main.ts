@@ -63,4 +63,12 @@ ipcMain.handle('write-vault', async (_, data: string) => {
   return true;
 });
 
+ipcMain.handle('delete-vault', async () => {
+  const filePath = path.join(app.getPath('documents'), 'mavault_core.sec');
+  if (fs.existsSync(filePath)) {
+    fs.unlinkSync(filePath);
+  }
+  return true;
+});
+
 app.whenReady().then(createWindow);
