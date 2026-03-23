@@ -260,23 +260,21 @@ export default function App() {
     website: '',
     notes: '',
     tagsString: '',
+    customIcon: undefined,
   });
-
-  const [entryIcon, setEntryIcon] = useState<string | undefined>(undefined);
 
   const handleCustomIconUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     
-    // Read file as data URL (Base64)
     const reader = new FileReader();
     reader.onload = (event) => {
         const base64 = event.target?.result as string;
-        setEntryIcon(base64);
+        setNewEntry(prev => ({ ...prev, customIcon: base64 }));
         showToast('Custom icon uploaded');
     };
     reader.readAsDataURL(file);
-    e.target.value = ''; // Reset
+    e.target.value = '';
   };
 
   const handleGenerate = () => {
@@ -433,43 +431,39 @@ export default function App() {
   }, [iconSearchTerm]);
 
   const handleSaveEntry = async (e: React.FormEvent) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     
-    // Explicitly grab the current entry icon and other field values to avoid closure/stale-state issues
-    const currentIcon = entryIcon;
     const currentTags = newEntry.tagsString ? newEntry.tagsString.split(',').map(t => t.trim()).filter(t => t !== '') : [];
 
     try {
-        let updatedBrands = [...customBrands];
-        if (customBrandInput.name && customBrandInput.domain) {
-            updatedBrands.push({ id: crypto.randomUUID(), ...customBrandInput });
-            setCustomBrands(updatedBrands);
-        }
+        // If the user provided overrides in the branding section, we apply them to the entry directly
+        const finalName = customBrandInput.name || newEntry.name || 'Untitled';
+        const finalWebsite = customBrandInput.domain || newEntry.website || '';
 
         const entry: VaultEntry = {
           id: editingEntry ? editingEntry.id : crypto.randomUUID(),
-          name: newEntry.name || 'Untitled',
+          name: finalName,
           username: newEntry.username || '',
           password: newEntry.password || '',
-          website: newEntry.website || '',
+          website: finalWebsite,
           notes: newEntry.notes || '',
           type: newEntry.type as any,
           tags: currentTags,
           lastUpdated: new Date().toISOString(),
-          customIcon: currentIcon, // Now explicitly using the captured icon state
+          customIcon: newEntry.customIcon, 
         };
         
         const updatedEntries = editingEntry ? entries.map(e => e.id === editingEntry.id ? entry : e) : [entry, ...entries];
-        setEntries(updatedEntries);
-        await saveVault(updatedEntries, updatedBrands);
         
-        // Success cleanup
+        // Save to state AND storage immediately
+        setEntries(updatedEntries);
+        await saveVault(updatedEntries, customBrands);
+        
         setShowAddModal(false);
         setEditingEntry(null);
-        setEntryIcon(undefined);
         setCustomBrandInput({ name: '', domain: '' });
         setSelectedEntryId(entry.id);
-        setNewEntry({ type: 'password', name: '', username: '', password: '', website: '', notes: '', tagsString: '' });
+        setNewEntry({ type: 'password', name: '', username: '', password: '', website: '', notes: '', tagsString: '', customIcon: undefined });
         setShowPassword(false);
         showToast(editingEntry ? 'Entry updated' : 'Entry added');
     } catch (err) {
@@ -479,22 +473,10 @@ export default function App() {
 
   const startEditing = (entry: VaultEntry) => {
     setEditingEntry(entry);
-    setNewEntry({ ...entry, tagsString: entry.tags?.join(', ') || '' });
-    setEntryIcon(entry.customIcon);
-
-    // Check custom brands first
-    const customBrand = customBrands.find(b => entry.website?.includes(b.domain) || entry.name.toLowerCase().includes(b.name.toLowerCase()));
-
-    // Fallback to internal heuristics
-    const heuristicBrand = getHeuristicBrand(entry.name, entry.website || '');
-
-    if (customBrand) {
-        setCustomBrandInput({ name: customBrand.name, domain: customBrand.domain });
-    } else if (heuristicBrand) {
-        setCustomBrandInput({ name: heuristicBrand.name, domain: heuristicBrand.domain });
-    } else {
-        setCustomBrandInput({ name: '', domain: '' });
-    }
+    setNewEntry({ ...entry, tagsString: entry.tags?.join(', ') || '', customIcon: entry.customIcon });
+    
+    // Set overrides to match current entry values so user can see them
+    setCustomBrandInput({ name: entry.name, domain: entry.website || '' });
 
     setShowAddModal(true);
   };
@@ -812,7 +794,13 @@ export default function App() {
                         onClick={() => setSelectedEntryId(entry.id)}
                       >
                         <div className="brand-orb brand-orb-small" style={{ '--brand-color': brandColor } as any}>
-                          {iconUrl ? <img src={iconUrl} alt="" onError={(e) => (e.currentTarget.style.display = 'none')} /> : <Shield size={16} />}
+                          {entry.customIcon ? (
+                            <img src={entry.customIcon} alt="" />
+                          ) : iconUrl ? (
+                            <img src={iconUrl} alt="" onError={(e) => (e.currentTarget.style.display = 'none')} />
+                          ) : (
+                            <Shield size={16} />
+                          )}
                         </div>
                         <div className="entry-list-info">
                           <div className="entry-item-header">
@@ -867,7 +855,13 @@ export default function App() {
                                 onClick={() => setSelectedEntryId(entry.id)}
                               >
                                 <div className="brand-orb brand-orb-small" style={{ '--brand-color': brandColor } as any}>
-                                  {iconUrl ? <img src={iconUrl} alt="" onError={(e) => (e.currentTarget.style.display = 'none')} /> : <Shield size={16} />}
+                                  {entry.customIcon ? (
+                                    <img src={entry.customIcon} alt="" />
+                                  ) : iconUrl ? (
+                                    <img src={iconUrl} alt="" onError={(e) => (e.currentTarget.style.display = 'none')} />
+                                  ) : (
+                                    <Shield size={16} />
+                                  )}
                                 </div>
                                 <div className="entry-list-info">
                                   <div className="entry-item-header">
