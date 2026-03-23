@@ -44,3 +44,28 @@ This will generate a portable `mavault-win32-x64` folder inside the `dist` direc
 ```bash
 npm run build:mac
 ```
+
+## ✈️ Cross-Platform Migration
+
+Mavault makes it easy to move your vault between Windows, macOS, and Linux without ever touching the cloud.
+
+### Method 1: Manual File Move (Fastest)
+1. Locate your encrypted vault file (`mavault_core.sec`) on your current machine.
+   - **Windows**: `C:\Users\<YourUser>\Documents\mavault_core.sec`
+   - **macOS/Linux**: `~/Documents/mavault_core.sec`
+2. Copy this file to a USB drive or secure transfer method.
+3. Paste the file into the **Documents** folder on your new machine.
+4. Launch Mavault on the new machine and enter your **original Master Passphrase**.
+
+### Method 2: Secure Export/Import
+1. On your current machine, go to **Settings & Data** > **Export All**.
+2. Save the `mavault_backup.sec` file.
+3. On your new machine, launch a fresh instance of Mavault and create a temporary vault.
+4. Go to **Settings & Data** > **Import All** and select your backup file.
+5. Enter your **original Master Passphrase** when prompted to decrypt and merge the data.
+
+### 🍎 Important for macOS Users
+Since Mavault is a high-security, local-only tool, it is distributed as an **unsigned** application. macOS Gatekeeper will block it by default.
+1. Drag Mavault from the `.dmg` to your **Applications** folder.
+2. **Right-click** the Mavault app and select **Open**.
+3. A security popup will appear. Click **Open** again to authorize the app.
