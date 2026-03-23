@@ -1173,6 +1173,42 @@ export default function App() {
       )}
 
       {/* Modals */}
+      {showBackupPassphraseModal.isOpen && (
+        <div className="modal-overlay" style={{ zIndex: 10000 }}>
+          <div className="modal animate-fade-in" style={{ textAlign: 'center' }}>
+            <Key size={40} className="accent" style={{ marginBottom: '16px' }} />
+            <h3 style={{ marginBottom: '8px' }}>Legacy Backup Detected</h3>
+            <p className="modal-subtitle" style={{ marginBottom: '24px' }}>
+              This backup was encrypted with a different Master Passphrase. Please enter the original passphrase used to create this file so we can import the data.
+            </p>
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              showBackupPassphraseModal.resolve(backupPassphraseInput);
+              setShowBackupPassphraseModal({ isOpen: false, resolve: () => {}, reject: () => {} });
+            }}>
+              <div className="form-group">
+                <input 
+                  type="password" 
+                  autoFocus 
+                  placeholder="Enter original master passphrase..." 
+                  value={backupPassphraseInput}
+                  onChange={(e) => setBackupPassphraseInput(e.target.value)}
+                />
+              </div>
+              <div className="modal-actions" style={{ marginTop: '24px' }}>
+                <button type="button" className="btn btn-ghost" onClick={() => {
+                  showBackupPassphraseModal.resolve(null);
+                  setShowBackupPassphraseModal({ isOpen: false, resolve: () => {}, reject: () => {} });
+                }}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={!backupPassphraseInput}>
+                  Decrypt & Import
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {showAddModal && (
         <div className="modal-overlay">
           <div className="modal animate-fade-in">
